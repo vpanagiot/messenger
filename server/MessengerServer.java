@@ -1,4 +1,5 @@
 package messenger.server;
+import java.text.SimpleDateFormat;
 import java.util.*;
 import org.json.JSONObject;
 import org.nanohttpd.util.ServerRunner;
@@ -8,6 +9,8 @@ public class MessengerServer {
 	
 	private static Map<String,Map<String,List<Message>>> messageMap=new HashMap<>();
 	private static Map<String,User> userMap=new HashMap<>();
+	private static MessengerDBInterface  dbObject;
+	private static SimpleDateFormat ft =  new SimpleDateFormat ("yyyy.MM.dd,hh:mm:ss");
 	
 	
 	public MessengerServer() {
@@ -16,40 +19,24 @@ public class MessengerServer {
 	/** sendMessage handles an incoming send api request
 	 * 
 	 * @param postData
-	 * @return 200 if success null if fail
+	 * @return 200 if success 401 if fail
 	 */
 	public static String sendMessage(Map<String,Object> postMap){
 		Map auxMap=new HashMap<>();
-		
+			
 		if(userMap.containsKey((String)postMap.get("username"))){
 			User auxUser=userMap.get(postMap.get("username"));
 			String sender=(String)postMap.get("username");
 			String receiver=(String)postMap.get("receiver");
 			if(auxUser.getSession_data().equals(postMap.get("session_data"))){
-				if(!userMap.containsKey(receiver)){
-					auxMap.put("state", "401");
-					return(new JSONObject(auxMap).toString());
+				if(dbObject.dbNewMessage(sender,receiver,(String) postMap.get("message"),ft.format(new Date()),false)){
+					auxMap.put("state", "200");
 				}
 				else{
-				if(!messageMap.containsKey(sender)){
-					messageMap.put(sender, new HashMap<String,List<Message>>());
+					auxMap.put("state", "401");
 				}
-				if(!messageMap.get(sender).containsKey(receiver)){
-					messageMap.get(sender).put(receiver, new ArrayList<Message>());
-				}
-				if(!messageMap.containsKey(receiver)){
-					messageMap.put(receiver, new HashMap<String,List<Message>>());
-				}
-				if(!messageMap.get(receiver).containsKey(sender)){
-					messageMap.get(receiver).put(sender, new ArrayList<Message>());
-				}
-				Message message=new Message((String)postMap.get("message"),receiver,sender);
-				messageMap.get(sender).get(receiver).add(message);
-				messageMap.get(receiver).get(sender).add(message);
-				auxMap.put("state", "200");
 				
 				return(new JSONObject(auxMap).toString());
-				}
 			}
 			else{
 				auxMap.put("state", "401");
@@ -74,8 +61,8 @@ public class MessengerServer {
 		MyHttpServer.addHandler("/messenger/api/getmessages", "POST", (String uri,Map<String,List<String>> getMap,Map<String,Object> postMap)->getMessages(postMap));
 		MyHttpServer.addHandler("/messenger/api/history", "POST", (String uri,Map<String,List<String>> getMap,Map<String,Object> postMap)->history(postMap));
 		MessengerServer curServer=new MessengerServer();
-		String user1="Vasilis1";
-		String user2="Vasilis2";
+		curServer.dbObject=new MessengerDBInterface();
+		
 		
 		dummyData();
 		
@@ -84,15 +71,17 @@ public class MessengerServer {
 	
 	public static String login(Map<String,Object> postMap){
 		Map auxMap=new HashMap<>();
-		
-		if(userMap.containsKey((String)postMap.get("username"))){
-			User auxUser=userMap.get(postMap.get("username"));
+		User auxUser=null;
+		if((auxUser=dbObject.dbGetUserData((String)postMap.get("username")))!=null){
+			userMap.put((String)postMap.get("username"),auxUser);
 			if(auxUser.getPassword().equals(postMap.get("password"))){
 				
 				auxMap.put("state", "200");
 				auxMap.put("session_data",auxUser.getUsername()+" "+new Date().toString());
 				auxUser.setSession_data(auxMap.get("session_data").toString());
 				auxUser.setOnline(true);
+				auxUser.setFriendList(dbObject.dbGetContacts(auxUser.getUsername()));
+				dbObject.dbSetUserStatus(auxUser.getUsername(), true, auxUser.getSession_data());
 				return(new JSONObject(auxMap).toString());
 			}
 			else{
@@ -111,17 +100,17 @@ public class MessengerServer {
 	public static String friendlist(Map<String,Object> postMap){
 		Map auxMap=new HashMap<>();
 		Map auxMap2=new HashMap();
-		
+
 		if(userMap.containsKey((String)postMap.get("username"))){
 			User auxUser=userMap.get(postMap.get("username"));
 			if(auxUser.getSession_data().equals(postMap.get("session_data"))){
 				for(String i:auxUser.getFriendList()){
 					auxMap2.put(i, userMap.get(i).isOnline());
 				}
-				
+
 				auxMap.put("friendlist", auxMap2);
 				auxMap.put("state", "200");
-				
+
 
 				return(new JSONObject(auxMap).toString());
 			}
@@ -134,86 +123,117 @@ public class MessengerServer {
 			auxMap.put("state", "401");
 			return(new JSONObject(auxMap).toString());
 		}		
-		
+
 	}
-	
+	/** loads the messages that the user has communicated with other users
+	 * TODO check the read state for incoming
+	 * @param postMap
+	 * @return
+	 */
 	public static String history(Map<String,Object> postMap){
 		Map auxMap=new HashMap<>();
 		Map auxMap2=new HashMap();
-		
+		List<Message> historyList=null;
 		if(userMap.containsKey((String)postMap.get("username"))){
 			User auxUser=userMap.get(postMap.get("username"));
+			String username=auxUser.getUsername();
 			if(auxUser.getSession_data().equals(postMap.get("session_data"))){
-				if(messageMap.containsKey(auxUser.getUsername())){
-					String client=auxUser.getUsername();
-					for(Map.Entry intro:messageMap.get(client).entrySet()){
-						List auxList=new ArrayList();
-						auxMap2.put(intro.getKey(), auxList);
-						for (Object i:(List)intro.getValue()){
-							ClientMessage cMessage=new ClientMessage(((Message)i).getMessage(),((Message)i).getSender().equals(client),((Message)i).getDate(),((Message)i).getReadState());
-							auxList.add(cMessage);
-							if(((Message)i).getReceiver().equals(auxUser.getUsername())){
-								((Message)i).setReadState();
+				historyList=dbObject.dbGetHistory(username);
+				if(historyList!=null){
+					if(!historyList.isEmpty()){
+						for(Message i:historyList){
+							if(i.getSender().equals(username)){
+								if(auxMap2.containsKey(i.getReceiver())){
+									ClientMessage cMessage=new ClientMessage(i.getMessage(),true,i.getDate(),i.getReadState());
+									((List)auxMap2.get(i.getReceiver())).add(cMessage);
+								}
+								else{
+									auxMap2.put(i.getReceiver(), new ArrayList<>());
+									ClientMessage cMessage=new ClientMessage(i.getMessage(),true,i.getDate(),i.getReadState());
+									((List)auxMap2.get(i.getReceiver())).add(cMessage);
+								}
+							}
+							else{
+								if(auxMap2.containsKey(i.getSender())){
+									ClientMessage cMessage=new ClientMessage(i.getMessage(),false,i.getDate(),true);
+									((List)auxMap2.get(i.getSender())).add(cMessage);
+								}
+								else{
+									auxMap2.put(i.getSender(), new ArrayList<>());
+									ClientMessage cMessage=new ClientMessage(i.getMessage(),false,i.getDate(),true);
+									((List)auxMap2.get(i.getSender())).add(cMessage);
+								}
 							}
 						}
+						auxMap.put("history", auxMap2);
+						auxMap.put("state", "200");
 					}
-					
-					auxMap.put("history", auxMap2);
-					auxMap.put("state", "200");
-					
+					else{
+						auxMap2=null;
+						auxMap.put("history", auxMap2);
+						auxMap.put("state", "404");
+					}
 				}
 				else{
-					
-					auxMap.put("history", null);
+					auxMap2=null;
+					auxMap.put("history", auxMap2);
 					auxMap.put("state", "404");
 				}
-				return(new JSONObject(auxMap).toString());
+
+				
+
 			}
 			else{
-				auxMap.put("state", "401");
-				return(new JSONObject(auxMap).toString());
+
+				auxMap.put("history", null);
+				auxMap.put("state", "404");
 			}
+			System.out.println(auxMap.toString());
+			return(new JSONObject(auxMap).toString());
 		}
 		else{
 			auxMap.put("state", "401");
 			return(new JSONObject(auxMap).toString());
-		}		
-		
+		}
+
+
 	}
-	
+
 	/**getMessages handles the getmessages api call that asks for new incoming messages*/
 	public static String getMessages(Map<String,Object> postMap){
 		Map auxMap=new HashMap<>();
 		Map auxMap2=new HashMap();
-		
+		List<Message> newMessagesList=null;
 		if(userMap.containsKey((String)postMap.get("username"))){
 			User auxUser=userMap.get(postMap.get("username"));
+			String username=auxUser.getUsername();
 			if(auxUser.getSession_data().equals(postMap.get("session_data"))){
-				if(messageMap.containsKey(auxUser.getUsername())){
-					String client=auxUser.getUsername();
-					for(Map.Entry intro:messageMap.get(client).entrySet()){
-						List auxList=new ArrayList();
-						auxMap2.put(intro.getKey(), auxList);
-						for (Object i:(List)intro.getValue()){
-							if(!((Message)i).getReadState()){
-								if(((Message)i).getReceiver().equals(client)){
-								Map message=new HashMap();
-								message.put("message", ((Message)i).getMessage());
-								message.put("date", ((Message)i).getDate());
-								auxList.add(message);
-								((Message)i).setReadState();
-								}
+				newMessagesList=dbObject.dbGetNewMessages(username);
+
+				if(newMessagesList!=null){
+					if(!newMessagesList.isEmpty()){
+						for(Message i:newMessagesList){					
+							if(auxMap2.containsKey(i.getSender())){
+								ClientMessage cMessage=new ClientMessage(i.getMessage(),false,i.getDate(),true);
+								((List)auxMap2.get(i.getSender())).add(cMessage);
 							}
-							
+							else{
+								auxMap2.put(i.getSender(), new ArrayList<>());
+								ClientMessage cMessage=new ClientMessage(i.getMessage(),false,i.getDate(),true);
+								((List)auxMap2.get(i.getSender())).add(cMessage);
+							}
 						}
+						auxMap.put("newmessages", auxMap2);
+						auxMap.put("state", "200");
+
 					}
-					System.out.println(auxMap2.toString());
-					auxMap.put("newmessages", auxMap2);
-					auxMap.put("state", "200");
-					
+					else{
+
+						auxMap.put("newmessages", null);
+						auxMap.put("state", "404");
+					}
 				}
 				else{
-					
 					auxMap.put("newmessages", null);
 					auxMap.put("state", "404");
 				}
@@ -228,7 +248,7 @@ public class MessengerServer {
 			auxMap.put("state", "401");
 			return(new JSONObject(auxMap).toString());
 		}		
-		
+
 	}
 	
 	private static void dummyData(){

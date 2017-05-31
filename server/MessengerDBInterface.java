@@ -311,6 +311,7 @@ public class MessengerDBInterface {
 	
 	/**It gets all messages that the user has sent or received 
 	 * Setting to read needs to be implemented
+	 * TODO to check if there is a case for a message to be added between retrieval and changing state!!!!
 	 */
 	public List<Message> dbGetHistory(String user){
 		Connection c=null;
@@ -332,8 +333,15 @@ public class MessengerDBInterface {
 				message=new Message(queryResult.getString(3),queryResult.getString(2),queryResult.getString(1),queryResult.getString(4),(queryResult.getInt(5)==1));
 				messages.add(message);
 			}
-			
 			stmt.close();
+			//Setting to read 
+			String changeState="UPDATE  MESSAGES SET readstatus=1 "+
+							"WHERE  receiver_ID in (SELECT ID from users where username=?) and readstatus=0;";
+			stmt=c.prepareStatement(changeState);
+			stmt.setString(1, user);
+			stmt.execute();
+			stmt.close();
+			
 			c.close();
 			return messages;    
 		}
@@ -370,6 +378,13 @@ public class MessengerDBInterface {
 				messages.add(message);
 			}
 			
+			stmt.close();
+			//Setting to read 
+			String changeState="UPDATE  MESSAGES SET readstatus=1 "+
+							"WHERE  receiver_ID in (SELECT ID from users where username=?) and readstatus=0;";
+			stmt=c.prepareStatement(changeState);
+			stmt.setString(1, user);
+			stmt.execute();
 			stmt.close();
 			c.close();
 			return messages;    
