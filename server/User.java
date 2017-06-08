@@ -1,5 +1,6 @@
 package messenger.server;
 
+import java.util.Date;
 import java.util.List;
 
 public class User {
@@ -8,6 +9,7 @@ public class User {
 	private String session_data;
 	private List<String> friendList;
 	private boolean online;
+	private Date date=null;
 	
 	public User(String username,String password){
 		this.username=username;
@@ -62,5 +64,17 @@ public class User {
 					"Friend list :  \n"+
 					"             "+((friendList==null)?"No friend List":friendList.toString());
 		return data;
+	}
+	
+	public synchronized void updateDate(){
+		date=new Date();
+	}
+	
+	public synchronized void resetDate(){
+		date=null;
+	}
+	
+	public synchronized Date getDate(){
+		return date;
 	}
 }

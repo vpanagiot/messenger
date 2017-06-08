@@ -23,7 +23,7 @@ public class Message {
 			this.receiver=receiver;
 			this.sender=sender;
 			SimpleDateFormat ft = 
-				      new SimpleDateFormat ("yyyy.MM.dd,hh:mm:ss");
+				      new SimpleDateFormat ("yyyy.MM.dd,HH:mm:ss");
 			try{
 			date=ft.parse(senddate);
 			}
@@ -49,7 +49,7 @@ public class Message {
 		
 		public String getDate(){
 			SimpleDateFormat ft = 
-				      new SimpleDateFormat ("yyyy.MM.dd,hh:mm:ss");
+				      new SimpleDateFormat ("yyyy.MM.dd,HH:mm:ss");
 			return(ft.format(date));
 		}
 		public String getMessage(){

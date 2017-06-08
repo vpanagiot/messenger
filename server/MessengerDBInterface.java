@@ -7,7 +7,9 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 /** This class accesses the sqlite database in order to retrieve and insert message and user data
  * 
  * @author vpanagiot
@@ -212,19 +214,45 @@ public class MessengerDBInterface {
 	public boolean dbSetContact(String username,String contact,int status){
 		Connection c=null;
 		PreparedStatement stmt=null;
+		ResultSet result;
 		try {
 			Class.forName("org.sqlite.JDBC");
 			c=DriverManager.getConnection("jdbc:sqlite:messengerdb");
 			
-			String contactSet="INSERT INTO USERCONTACTS VALUES((SELECT ID from USERS where username=?),(SELECT ID from USERS where username=?),?);";
+			String contactSet="SELECT contacts.username as contact,relation,contacts.online as online FROM USERCONTACTS "+
+					"JOIN USERS as user on USERCONTACTS.user_ID=user.ID "+
+					"JOIN USERS as contacts on USERCONTACTS.contact_ID=contacts.ID "+
+					"WHERE user.username=? and contacts.username=?";
+			stmt=c.prepareStatement(contactSet);
+			stmt.setString(1, username);
+			stmt.setString(2, contact);
+			result=stmt.executeQuery();
+			if(result.next()){
+				System.out.println("entered the existing relation part");
+				stmt.close();
+				contactSet="UPDATE USERCONTACTS SET relation=?  where user_ID=(SELECT ID from USERS WHERE username=?) and contact_ID=(SELECT ID from USERS WHERE username=?)";
+				stmt=c.prepareStatement(contactSet);
+				stmt.setInt(1, status);
+				stmt.setString(2, username);
+				stmt.setString(3, contact);
+				stmt.execute();
+				
+				stmt.close();
+			}
+			else{
+			stmt.close();
+			System.out.println("entered the not existing relation part");
+			contactSet="INSERT INTO USERCONTACTS VALUES((SELECT ID from USERS where username=?),(SELECT ID from USERS where username=?),?);";
 			stmt=c.prepareStatement(contactSet);
 			stmt.setString(1, username);
 			stmt.setString(2, contact);
 			stmt.setInt(3, status);
 			stmt.execute();
 				stmt.close();
+			}
 			    c.close();
-			    return true;    
+			    return true;  
+			
 		}
 		catch(Exception e){
 			System.out.println("Exception at contact creation");
@@ -237,29 +265,70 @@ public class MessengerDBInterface {
 	 * @param username
 	 * @return
 	 */
-	public List<String> dbGetContacts(String username){
+	public List<Map> dbGetContacts(String username){
 		Connection c=null;
 		PreparedStatement stmt=null;
 		ResultSet queryResult=null;
-		List<String> friendList=new ArrayList<>();
+		List<Map> friendList=new ArrayList<>();
 		
 		try {
 			Class.forName("org.sqlite.JDBC");
 			c=DriverManager.getConnection("jdbc:sqlite:messengerdb");
 			
-			String contactSet="SELECT contacts.username as contact,relation FROM USERCONTACTS "+
+			String contactSet="SELECT contacts.username as contact,relation,contacts.online as online FROM USERCONTACTS "+
 								"JOIN USERS as user on USERCONTACTS.user_ID=user.ID "+
 								"JOIN USERS as contacts on USERCONTACTS.contact_ID=contacts.ID "+
 								"WHERE user.username=?";
 			stmt=c.prepareStatement(contactSet);
 			stmt.setString(1, username);
 			queryResult=stmt.executeQuery();
+			Map contactMap;
 			while(queryResult.next()){
-				if(queryResult.getInt("relation")==1){
-					friendList.add(queryResult.getString("contact"));
+				contactMap=new HashMap();
+				contactMap.put("username",queryResult.getString("contact"));
+				contactMap.put("friendship",(queryResult.getInt("relation"))==1?2:4);
+				contactMap.put("online",false);
+				friendList.add(contactMap);
 				}
-			}
 			stmt.close();
+			
+			
+			contactSet="SELECT user.username as contact,relation,user.online as online FROM USERCONTACTS "+
+					"JOIN USERS as user on USERCONTACTS.user_ID=user.ID "+
+					"JOIN USERS as contacts on USERCONTACTS.contact_ID=contacts.ID "+
+					"WHERE contacts.username=?";
+			stmt=c.prepareStatement(contactSet);
+			stmt.setString(1, username);
+			queryResult=stmt.executeQuery();
+			while(queryResult.next()){
+				contactMap=new HashMap();
+				contactMap.put("username",queryResult.getString("contact"));
+				contactMap.put("friendship",(queryResult.getInt("relation")));
+				contactMap.put("online",queryResult.getInt("online")==1?true:false);
+				boolean found=false;
+				for (Map i:friendList){
+					if(contactMap.get("username").equals(i.get("username"))){
+						if((int)contactMap.get("friendship")==1){
+							if((int)i.get("friendship")==2){
+							i.replace("friendship", 1);
+							i.replace("online", contactMap.get("online"));
+							}
+							found=true;
+							break;
+						}
+					}
+				}
+				if(!found){
+					if((int)contactMap.get("friendship")==1){
+						contactMap.replace("online", false);
+						contactMap.replace("friendship",3);
+						friendList.add(contactMap);
+					}
+				}
+				
+				}
+			stmt.close();
+			
 			c.close();
 			return friendList;    
 		}
@@ -269,6 +338,45 @@ public class MessengerDBInterface {
 			return(null);
 		}
 	}
+	
+	/** Searches for usernames like username and returns them in a list
+	 * 
+	 * @param username the string to be compared to actual usernames
+	 * @return
+	 */
+	public List<Map> dbSearchUsers(String username){
+		Connection c=null;
+		PreparedStatement stmt=null;
+		ResultSet queryResult=null;
+		List<Map> contactList=new ArrayList<>();
+		Map contactMap;
+		
+		
+		try {
+			Class.forName("org.sqlite.JDBC");
+			c=DriverManager.getConnection("jdbc:sqlite:messengerdb");
+			
+			String contactSet="SELECT username from USERS "+
+								"WHERE username LIKE ?";
+			stmt=c.prepareStatement(contactSet);
+			stmt.setString(1, "%"+username+"%");
+			queryResult=stmt.executeQuery();
+			while(queryResult.next()){
+				contactMap=new HashMap();
+				contactMap.put("username", queryResult.getString("username"));
+				contactList.add(contactMap);
+			}
+			stmt.close();
+			c.close();
+			return contactList;    
+		}
+		catch(Exception e){
+			System.out.println("Exception at getting contacts");
+			e.printStackTrace();
+			return(null);
+		}
+	}
+	
 	
 	/** It writes a new message record in MESSAGES
 	 * 
@@ -418,14 +526,25 @@ public class MessengerDBInterface {
 		if(db.dbSetContact("Vasilis", "Michael", 1)) System.out.println("succesful contact creation");
 		if(db.dbSetContact("Veronica", "Vasilis", 1)) System.out.println("succesful contact creation");
 		if(db.dbSetContact("Veronica", "Michael", 1)) System.out.println("succesful contact creation");*/
-		System.out.println(db.dbGetContacts("Vasilis").toString());
+		//System.out.println(db.dbGetContacts("Vasilis").toString());
 		/*db.dbNewMessage("Michael", "Vasilis", "Hey how are you?", "2017", true);
 		db.dbNewMessage("Vasilis", "Michael", "All fine", "2017", true);
 		db.dbNewMessage("Michael", "Vasilis", "Nice", "2017", false);
 		db.dbNewMessage("Vasilis", "Michael", "Yup", "2017", false);*/
-		System.out.println(db.dbGetHistory("Vasilis").toString());
-		System.out.println("And the undelivered messages:");
-		System.out.println(db.dbGetNewMessages("Vasilis").toString());
+		//System.out.println(db.dbGetHistory("Vasilis").toString());
+		//System.out.println("And the undelivered messages:");
+		//System.out.println(db.dbGetNewMessages("Vasilis").toString());
+		//System.out.println("Users like e:");
+		//System.out.println(db.dbSearchUsers("e"));
+		//System.out.println("Testing contacts of user Vasilis");
+		//System.out.println((db.dbGetContacts("Vasilis")).toString());
+		System.out.println("change Vasilis - George relation to blocked");
+		db.dbSetContact("Vasilis", "George", 2);
+		System.out.println(db.dbGetContacts("Vasilis").toString());
+		System.out.println("change Vasilis - George relation to accept");
+		db.dbSetContact("Vasilis", "George", 1);
+		System.out.println(db.dbGetContacts("Vasilis").toString());
+		
 	
 	}
 

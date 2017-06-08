@@ -6,7 +6,7 @@ import java.util.Date;
 import messenger.server.*;
 public class ClientMessage extends GenericMessage implements Serializable {
 	private boolean sent; //True if sent, false if received
-	static SimpleDateFormat ft =  new SimpleDateFormat ("yyyy.MM.dd,hh:mm:ss");
+	static SimpleDateFormat ft =  new SimpleDateFormat ("yyyy.MM.dd,HH:mm:ss");
 	
 	/**This is invoked for incoming messages or for outgoing that are loaded from history call
 	 * 

@@ -95,6 +95,7 @@ public class LoginDialog extends JDialog {
 			public void actionPerformed(ActionEvent e) {
 				loginData.put("state", "null");
 				loginDialog.setVisible(false);
+				System.exit(EXIT_ON_CLOSE);
 			}
 		});
 		btnCancel.setAlignmentX(Component.CENTER_ALIGNMENT);
@@ -160,7 +161,7 @@ public class LoginDialog extends JDialog {
 	
 	private void initUI() {
         
-        setTitle("Add Book Form");
+        setTitle("Login Form");
         setSize(300, 300);
         setLocationRelativeTo(null);
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);

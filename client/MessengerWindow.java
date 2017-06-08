@@ -19,15 +19,19 @@ import javax.swing.border.LineBorder;
 import javax.swing.event.ListDataListener;
 import javax.swing.JTextArea;
 
+import java.awt.AWTEvent;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Point;
+import java.awt.PopupMenu;
 import java.awt.Dimension;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
 import javax.swing.JLayeredPane;
 import javax.swing.JDesktopPane;
+import javax.swing.JEditorPane;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import java.awt.event.ActionListener;
@@ -46,6 +50,7 @@ import java.util.Set;
 import java.awt.event.ActionEvent;
 import java.awt.GridLayout;
 import javax.swing.JTextField;
+import javax.swing.ListCellRenderer;
 import javax.swing.ListModel;
 import javax.swing.ListSelectionModel;
 import javax.swing.BoxLayout;
@@ -54,18 +59,21 @@ import javax.swing.DefaultListModel;
 import javax.swing.JList;
 import javax.swing.border.EtchedBorder;
 import java.awt.Insets;
+import java.awt.MenuItem;
+
 import javax.swing.event.ListSelectionListener;
 import javax.swing.event.ListSelectionEvent;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
+import javax.swing.ScrollPaneConstants;
+import java.awt.event.MouseAdapter;
 
 public class MessengerWindow extends JFrame {
 	static final long serialVersionUID=1;
 	private Map<String,List<ClientMessage>> messageMap;
-	private Map<String,List<ClientMessage>> unreadMap=new HashMap<>();
 	private Map<String,String> loginData=new HashMap<>();
 	private Map<String,Boolean> friendMap=new HashMap();
-	private Map<String,Boolean> orderedFriendMap=new LinkedHashMap<>();
+	private List<Map> friendMapList=new ArrayList<>();
 	private DefaultListModel<String> friends;
 	private List<String> friendOrderedList=new ArrayList<>();
 	private DefaultListModel<String> messages;
@@ -76,6 +84,9 @@ public class MessengerWindow extends JFrame {
 	private boolean toggle=false;
 	private int friendPreviousSelectionFirst=0;
 	private int friendPreviousSelectionLast=0;
+	private int historyCounter=0;
+	private List<ClientMessage> curMessageList=new ArrayList<>();
+	private JPopupMenu friendListPopup;
 	
 
 	public MessengerWindow() throws HeadlessException {
@@ -91,27 +102,65 @@ public class MessengerWindow extends JFrame {
 		menuBar.setPreferredSize(new Dimension(32000, 20));
 		getContentPane().add(menuBar);
 		
-		JMenu mnNewMenu = new JMenu("New menu");
+		JMenu mnNewMenu = new JMenu("File");
 		mnNewMenu.setAlignmentX(Component.LEFT_ALIGNMENT);
 		menuBar.add(mnNewMenu);
 		
-		JMenuItem mntmLogin = new JMenuItem("Login");
-		mntmLogin.addActionListener(new ActionListener() {
+		JMenuItem mntmLogout = new JMenuItem("Sign Out");
+		mntmLogout.addActionListener(new ActionListener() {
 			public void actionPerformed(ActionEvent e) {
+				if(loginData.containsKey("session_data")){
+					Map callData= new HashMap();
+					callData.put("username", loginData.get("username"));
+					callData.put("session_data", loginData.get("session_data"));
+					AsyncHttp.asyncHttpCall("POST","http://127.0.0.1:8080","/messenger/api/logout",callData, 
+						(state,result)->logout(state,result));
+				}
+				newTimer.stop();
+				toggle=false;
+				messageMap=null;
+				friendMap.clear();
+				friendMapList.clear();
+				
+				messages.clear();
+				friends.clear();
+				friendOrderedList.clear();
+				historyCounter=0;
+				curFriend="";
+				loginData.clear();
 				LoginDialog authDialog=new LoginDialog(true,loginData,mainWindow);
 				authDialog.setVisible(true);
 			}
 		});
-		mnNewMenu.add(mntmLogin);
+		mnNewMenu.add(mntmLogout);
 		
-		JMenuItem mntmSignup = new JMenuItem("Signup");
-		mntmSignup.addActionListener(new ActionListener() {
+		JMenuItem mntmExit = new JMenuItem("Exit");
+		mntmExit.addActionListener(new ActionListener() {
 			public void actionPerformed(ActionEvent e) {
-				LoginDialog authDialog=new LoginDialog(false,loginData,mainWindow);
-				authDialog.setVisible(true);
+				if(loginData.containsKey("session_data")){
+					Map callData= new HashMap();
+					callData.put("username", loginData.get("username"));
+					callData.put("session_data", loginData.get("session_data"));
+					AsyncHttp.asyncHttpCall("POST","http://127.0.0.1:8080","/messenger/api/logout",callData, 
+						(state,result)->logout(state,result));
+				}
+				
+				System.exit(EXIT_ON_CLOSE);
 			}
 		});
-		mnNewMenu.add(mntmSignup);
+		mnNewMenu.add(mntmExit);
+		
+		JMenu mnFriends = new JMenu("Friends");
+		menuBar.add(mnFriends);
+		
+		JMenuItem mntmAddFriend = new JMenuItem("Add Friend");
+		mntmAddFriend.addActionListener(new ActionListener() {
+			public void actionPerformed(ActionEvent e) {
+				FriendsManagement friendsManagement=new FriendsManagement(loginData);
+				friendsManagement.setVisible(true);
+			}
+		});
+		mnFriends.add(mntmAddFriend);
 		
 		JPanel panel = new JPanel();
 		panel.setAlignmentY(Component.BOTTOM_ALIGNMENT);
@@ -119,6 +168,7 @@ public class MessengerWindow extends JFrame {
 		panel.setLayout(new BoxLayout(panel, BoxLayout.X_AXIS));
 		
 		JScrollPane scrollPane = new JScrollPane();
+		scrollPane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
 		scrollPane.setPreferredSize(new Dimension(200, 3));
 		scrollPane.setMinimumSize(new Dimension(100, 22));
 		scrollPane.setMaximumSize(new Dimension(200, 32767));
@@ -130,13 +180,24 @@ public class MessengerWindow extends JFrame {
 		panel.add(scrollPane);
 		
 		friendList = new JList<>();
+		friendList.addMouseListener(new MouseAdapter() {
+			@Override
+			public void mousePressed(MouseEvent arg0) {
+				checkPopup(arg0);
+			}
+			
+			@Override
+			public void mouseReleased(MouseEvent arg0){
+				checkPopup(arg0);
+			}
+		});
 		friendList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
 		
 		friendList.addListSelectionListener(new ListSelectionListener() {
 			public void valueChanged(ListSelectionEvent arg0) {
 				int selection=0;
 				try{
-					if(friendOrderedList.size()>arg0.getLastIndex()){
+					
 						
 						try{
 						
@@ -148,6 +209,7 @@ public class MessengerWindow extends JFrame {
 							if(curFriend.isEmpty()){
 								fList.setSelectionInterval(0, 0);
 							curFriend=friendOrderedList.get(0);
+							System.out.println("Friend for Selection Empty: "+curFriend);
 							populateMessagesList();
 							}
 							else{
@@ -169,6 +231,7 @@ public class MessengerWindow extends JFrame {
 						else{
 							curFriend=friendOrderedList.get(fList.getMaxSelectionIndex());
 							populateMessagesList();
+							System.out.println("Friend is: "+curFriend);
 						}
 						
 						}catch(Exception e){
@@ -179,7 +242,7 @@ public class MessengerWindow extends JFrame {
 						
 						
 					}
-				}
+				
 				catch(Exception e){
 					System.out.println("At the listener");
 				}
@@ -192,7 +255,9 @@ public class MessengerWindow extends JFrame {
 		friendList.setModel(friends);
 		
 		scrollPane.setViewportView(friendList);
+		friendListPopup=new JPopupMenu();
 		
+		friendList.add(friendListPopup);
 		
 		messages=new DefaultListModel<>();
 		
@@ -203,6 +268,9 @@ public class MessengerWindow extends JFrame {
 		panel_1.setLayout(new BoxLayout(panel_1, BoxLayout.PAGE_AXIS));
 		
 		list_1 = new JList<>();
+		list_1.setMaximumSize(new Dimension(30000, 30000));
+		list_1.setMinimumSize(new Dimension(100, 0));
+		list_1.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
 		list_1.addListSelectionListener(new ListSelectionListener() {
 			public void valueChanged(ListSelectionEvent arg0) {
 				list_1.clearSelection();
@@ -214,16 +282,20 @@ public class MessengerWindow extends JFrame {
 		messagesPane.setForeground(Color.WHITE);
 		messagesPane.setAutoscrolls(true);
 		list_1.setModel(messages);
-		messagesPane.setPreferredSize(new Dimension(500, 250));
+		messagesPane.setPreferredSize(new Dimension(200, 250));
 		messagesPane.setMinimumSize(new Dimension(50, 0));
 		messagesPane.setMaximumSize(new Dimension(35000, 35000));
 		messagesPane.setBorder(new LineBorder(Color.GRAY));
 		
 		
+		
 		panel_1.add(messagesPane);
 		messagesPane.setViewportView(list_1);
 		
+		
+		
 		JTextArea textArea = new JTextArea();
+		textArea.setLineWrap(true);
 		textArea.addKeyListener(new KeyAdapter() {
 			@Override
 			public void keyPressed(KeyEvent arg0) {
@@ -273,7 +345,7 @@ public class MessengerWindow extends JFrame {
 						AsyncHttp.asyncHttpCall("POST","http://127.0.0.1:8080","/messenger/api/getmessages",callData, 
 								(state,result)->getNewMessages(state,result));
 					}
-					toggle=true;
+					
 					//}
 				}
 				
@@ -291,7 +363,89 @@ public class MessengerWindow extends JFrame {
 		// TODO Auto-generated constructor stub
 	}
 	
+	public void checkPopup(MouseEvent arg0){
+		if(arg0.isPopupTrigger()){
+			int friendIndex=friendList.locationToIndex(arg0.getPoint());
+			friendList.setSelectedIndex(friendIndex);
+			curFriend=friendOrderedList.get(friendIndex);
+			Map contact=friendMapList.get(friendIndex);
+			JMenuItem friendRemove=new JMenuItem();
+			friendRemove.setText("Remove");
+			JMenuItem friendBlock=new JMenuItem();
+			friendBlock.setText("Block");
+			JMenuItem friendAccept=new JMenuItem();
+			friendAccept.setText("Accept");
+			//event handlers
+			friendRemove.addActionListener(new ActionListener() {
+				public void actionPerformed(ActionEvent e) {
+					if(loginData.containsKey("session_data")){
+						Map callData= new HashMap();
+						callData.put("username", loginData.get("username"));
+						callData.put("session_data", loginData.get("session_data"));
+						callData.put("contact", curFriend);
+						AsyncHttp.asyncHttpCall("POST","http://127.0.0.1:8080","/messenger/api/removecontact",callData, 
+							(state,result)-> System.out.println("remove state"+state));
+					}
+				}
+			});
+			
+			friendBlock.addActionListener(new ActionListener() {
+				public void actionPerformed(ActionEvent e) {
+					if(loginData.containsKey("session_data")){
+						Map callData= new HashMap();
+						callData.put("username", loginData.get("username"));
+						callData.put("session_data", loginData.get("session_data"));
+						callData.put("contact", curFriend);
+						AsyncHttp.asyncHttpCall("POST","http://127.0.0.1:8080","/messenger/api/blockcontact",callData, 
+							(state,result)-> System.out.println("block state"+state));
+					}
+				}
+			});
+				
+			friendAccept.addActionListener(new ActionListener() {
+				public void actionPerformed(ActionEvent e) {
+					if(loginData.containsKey("session_data")){
+						Map callData= new HashMap();
+						callData.put("username", loginData.get("username"));
+						callData.put("session_data", loginData.get("session_data"));
+						callData.put("contact", curFriend);
+						AsyncHttp.asyncHttpCall("POST","http://127.0.0.1:8080","/messenger/api/acceptcontact",callData, 
+							(state,result)-> System.out.println("accept state"+state));
+					}
+				}
+			});
+			
+			///////////////////
+			switch((int)contact.get("friendship")){
+			case 1:
+				friendListPopup.removeAll();
+				friendListPopup.add(friendRemove);
+				friendListPopup.add(friendBlock);
+				break;
+			case 2:
+				friendListPopup.removeAll();
+				friendListPopup.add(friendRemove);
+				break;
+			case 3:
+				friendListPopup.removeAll();
+				friendListPopup.add(friendAccept);
+				friendListPopup.add(friendBlock);
+				break;
+			case 4:
+				friendListPopup.removeAll();
+				friendListPopup.add(friendAccept);
+				break;
+			default:
+				break;
+			}
+			friendListPopup.show(friendList, arg0.getX(), arg0.getY());
+		}
+			
+	}
 	
+	public void logout(int state,Map result){
+		
+	}
 	
 	public void newMessage(String mes){
 		Map callData= new HashMap();
@@ -314,32 +468,54 @@ public class MessengerWindow extends JFrame {
 		//needs to know which newmessage call it is receiving from
 	}
 	
+	private int searchFriendList(String username){
+		for (Map i:friendMapList){
+			if(i.get("username").equals(username)){
+				return(friendMapList.indexOf(i));
+			}
+		}
+		return -1;
+	}
+	
+	private int searchMapList(String username,List mapList){
+		for (Map i:(List<Map>)mapList){
+			if(i.get("username").equals(username)){
+				return(friendMapList.indexOf(i));
+			}
+		}
+		return -1;
+	}
+	
 	public void friendreturn(Integer state,Map result){
 		if(state==200){
-			Map<String,Boolean> friendMapAux=(Map<String,Boolean>)(result.get("friendlist"));
+			List<Map> friendListAux=(List)(result.get("friendlist"));
+			Map contact;
 			boolean changes=false;
-			for(Map.Entry i:friendMapAux.entrySet()){
-				String user=(String)i.getKey();
-				if(friendMap!=null){
-					if(friendMap.containsKey(user)){
-						if(friendMap.get(user)!=i.getValue()){
-							friendMap.put(user,(Boolean) i.getValue());
-							friends.set(friendOrderedList.indexOf(user), ("<html><p style='margin-bottom:5px'>"+user+"<br>"+(((boolean)i.getValue())?"Online":"Offline")+"</p></html>"));
+			int position;
+			for(Map i:friendListAux){
+				String user=(String)i.get("username");
+				if(friendMapList!=null){
+					if((position=searchFriendList(user))!=-1){
+						contact=friendMapList.get(position);
+						if(contact.get("online")!=i.get("online")||contact.get("friendship")!=i.get("friendship")){
+							contact.put("online",(Boolean) i.get("online"));
+							contact.put("friendship", i.get("friendship"));
+							friends.set(friendOrderedList.indexOf(user), ("<html><p style='margin-bottom:5px'>"+user+"<br>"+(((boolean)contact.get("online"))?"Online ":"Offline ")+contact.get("friendship")+"</p></html>"));
 							
 						}
 					}
 					else{
-						friendMap.put(user,(Boolean)i.getValue());
+						friendMapList.add(i);
 						friendOrderedList.add(user);
-						friendsAddElement(user,(Boolean)i.getValue());
+						friendsAddElement(user,(boolean)i.get("online"),(int)i.get("friendship"));///////////////////////////////
 					}
 				}
 			}
-			for(Map.Entry i:friendMap.entrySet()){
-				if(!friendMapAux.containsKey(i.getKey())){
-					friendMap.remove(i.getKey());
-					friends.remove(friendOrderedList.indexOf(i.getKey()));
-					friendOrderedList.remove(friendOrderedList.indexOf(i.getKey()));
+			for(Map i:friendMapList){
+				if(searchMapList((String)i.get("username"),friendListAux)==-1){
+					friendMapList.remove(i);
+					friends.remove(friendOrderedList.indexOf(i.get("uername")));
+					friendOrderedList.remove(friendOrderedList.indexOf(i.get("username")));
 					if(!friendOrderedList.contains(curFriend)){
 						if(friendList.getSelectedIndex()<friendOrderedList.size()){
 						curFriend=friendOrderedList.get(friendList.getSelectedIndex());
@@ -355,11 +531,15 @@ public class MessengerWindow extends JFrame {
 		}
 		else{
 		}
+		System.out.println("Printing Friends");
+		System.out.println(friendMap.toString());
+		System.out.println("Printing FriendOrderedList: "+friendOrderedList.toString());
 	}
 	
 	public void historyreturn(Integer state,Map result){
-
+		
 		if(state==200){
+			if(!toggle){
 		ClientMessage message;	
 			Map aux2=new HashMap();
 			Date date;
@@ -384,13 +564,23 @@ public class MessengerWindow extends JFrame {
 			}
 			messageMap=aux2;
 			System.out.println("History after parsing"+messageMap.toString());
-			
+			toggle=true;
+			System.out.println("Printing History");
+			System.out.println(messageMap.toString());
 			populateMessagesList();
-			
+			}
+			else{
+				//ignore for now , have to check for unread messages and append them
+			}
 			
 		}
 		else{
-			messageMap=new HashMap();
+			historyCounter++;
+			if(historyCounter>5){
+				toggle=true;
+				messageMap=new HashMap();
+			}
+			
 			
 		}
 	}
@@ -436,9 +626,9 @@ public class MessengerWindow extends JFrame {
 		}
 	}
 	
-	public void friendsAddElement(String userName,boolean online){
+	public void friendsAddElement(String userName,boolean online,int friendship){
 		try{
-		friends.addElement(("<html><p style='margin-bottom:5px'>"+userName+"<br>"+((online)?"Online":"Offline")+"</p></html>"));	
+		friends.addElement(("<html><p style='margin-bottom:5px'>"+userName+"<br>"+((online)?"Online  ":"Offline  ")+friendship+"</p></html>"));	
 		}
 		catch(Exception e){
 			System.out.println("At friendsAddElement");
@@ -447,14 +637,130 @@ public class MessengerWindow extends JFrame {
 	}
 	
 	public void messagesAddElement(String userName,boolean delivered,String message){
-		messages.addElement(("<html><div style='margin-bottom:10px;font-style:Courier;"+((delivered)?"font-color:Grey":"font-color:Black")+"'>"
-				+ "<h3>"+userName+":</h3><p >"+message+((delivered)?"(delivered)":"(undelivered)")+"</p></div></html>"));	
+		
+		messages.addElement(("<html><div style='margin-bottom:10px;font-style:Courier;width:100%;"+((userName.equals(curFriend))?"text-align:left;":"text-align:right;")+"'>"
+				+ "<h3>"+userName+":</h3><p >"+message+((delivered)?"(delivered)":"(undelivered)")+"</p></div></html>"));
+				
+		
 	}
+	
+	/** cell rendered to treat the users and contact messages differently*/
+	 class MyCellRenderer extends JEditorPane implements ListCellRenderer<Object> {
+	     public MyCellRenderer() {
+	         setOpaque(true);
+	     }
+
+	     public Component getListCellRendererComponent(JList<?> list,
+	                                                   Object value,
+	                                                   int index,
+	                                                   boolean isSelected,
+	                                                   boolean cellHasFocus) {
+	    	 this.setContentType("text/html");
+	         setText(value.toString());
+	         /**
+	         if(curMessageList!=null){
+	        	 if(curMessageList.get(index).getSent()){
+	        		 this.setAlignmentX(SwingConstants.RIGHT);
+	        	 }
+	        	 else{
+	        		 this.setAlignmentX(SwingConstants.LEFT);
+	        	 }
+	         }*/
+	         //this.setEditable(false);
+	         //this.setWrapStyleWord(true);
+	         //this.setLineWrap(true);
+	         
+	         Color background;
+	         Color foreground;
+
+	         // check if this cell represents the current DnD drop location
+	         JList.DropLocation dropLocation = list.getDropLocation();
+	         if (dropLocation != null
+	                 && !dropLocation.isInsert()
+	                 && dropLocation.getIndex() == index) {
+
+	             background = Color.BLUE;
+	             foreground = Color.WHITE;
+
+	         // check if this cell is selected
+	         } else if (isSelected) {
+	             background = Color.RED;
+	             foreground = Color.WHITE;
+
+	         // unselected, and not the DnD drop location
+	         } else {
+	             background = Color.WHITE;
+	             foreground = Color.BLACK;
+	         };
+
+	         setBackground(background);
+	         setForeground(foreground);
+
+	         return this;
+	     }
+	 }
+	 
+	/* class MyCellRenderer extends JLabel implements ListCellRenderer<Object> {
+	     public MyCellRenderer() {
+	         setOpaque(true);
+	     }
+
+	     public Component getListCellRendererComponent(JList<?> list,
+	                                                   Object value,
+	                                                   int index,
+	                                                   boolean isSelected,
+	                                                   boolean cellHasFocus) {
+
+	         setText(value.toString());
+	         if(curMessageList!=null){
+	        	 if(curMessageList.get(index).getSent()){
+	        		 this.setAlignmentX(SwingConstants.RIGHT);
+	        	 }
+	        	 else{
+	        		 this.setAlignmentX(SwingConstants.LEFT);
+	        	 }
+	         }
+	         //this.setEditable(false);
+	         //this.setWrapStyleWord(true);
+	         //this.setLineWrap(true);
+	         
+	         Color background;
+	         Color foreground;
+
+	         // check if this cell represents the current DnD drop location
+	         JList.DropLocation dropLocation = list.getDropLocation();
+	         if (dropLocation != null
+	                 && !dropLocation.isInsert()
+	                 && dropLocation.getIndex() == index) {
+
+	             background = Color.BLUE;
+	             foreground = Color.WHITE;
+
+	         // check if this cell is selected
+	         } else if (isSelected) {
+	             background = Color.RED;
+	             foreground = Color.WHITE;
+
+	         // unselected, and not the DnD drop location
+	         } else {
+	             background = Color.WHITE;
+	             foreground = Color.BLACK;
+	         };
+
+	         setBackground(background);
+	         setForeground(foreground);
+
+	         return this;
+	     }
+	 }*/
+	 
+	
 
 	
 	public static void main(String[] args) {
 		MessengerWindow ex = new MessengerWindow();
 		LoginDialog authDialog=new LoginDialog(true,ex.loginData,ex);
+		ex.list_1.setCellRenderer(ex.new MyCellRenderer());
 		authDialog.setVisible(true);
         ex.setVisible(true);
         
@@ -470,21 +776,14 @@ public class MessengerWindow extends JFrame {
 	 * 
 	 */
 	public void populateMessagesList(){
-		/*if(!unreadMap.isEmpty()){
-			if(unreadMap.containsKey(curFriend)){
-				List<ClientMessage> unreadList=unreadMap.get(curFriend);
-				for(ClientMessage i:unreadList){
-					i.setRead(true);
-					unreadList.remove(i);
-				}
-			}
-		}*/
+		
 		
 		try{
 		if(messageMap!=null){
 		if(!messageMap.isEmpty()){
 			if(messageMap.containsKey(curFriend)){
 				List<ClientMessage> messageList=messageMap.get(curFriend);
+				curMessageList=messageList;
 				if(!messages.isEmpty()){
 					messages.clear();
 				}
@@ -515,7 +814,7 @@ public class MessengerWindow extends JFrame {
 			e.printStackTrace();
 		}
 	}
-	
+	/*
 	public void populateFriendList(){
 		try{
 			if(friendMap!=null){
@@ -574,6 +873,7 @@ public class MessengerWindow extends JFrame {
 		}
 
 	}
+	*/
 	
 	private void initUI() {
         

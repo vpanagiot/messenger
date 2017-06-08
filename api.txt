@@ -1,0 +1,53 @@
+API documentation
+The API request are at uri /messenger/api/ and POST and reply data are in JSON form:
+
+
+searchcontact:
+Used to search for contacts that have username like the one provided
+POST data: 	username
+	   	sessiondata
+		contact
+reply data:	contact  
+		userlist: //list of users
+				username
+				//other fields are supported for future expansion of the API
+
+
+requestcontact:
+Friend request
+Post data:	username
+		sessiondata
+		contact
+reply data:	
+
+
+acceptcontact:
+accept friend request
+POST data:	username
+		sessiondata
+		contact
+reply data:
+
+
+blockcontact:
+block a user from communicating with this user
+POST data:	username
+		sessiondata
+		contact
+reply data:
+
+friendlist:
+get the contact list of the user. It includes incoming and outgoing friend requests
+and blocked contacts
+POST data:	username
+		sessiondata
+reply data: 	friendlist: //list of contacts
+				username
+				friendship //1:friends
+					   //2:the user who asks for friendlist has made a friend
+					   //  request
+					   //3:this contact has made a friend request to the user
+					   //4:the user has blocked this contact
+				online	   //true/false
+
+
