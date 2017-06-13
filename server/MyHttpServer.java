@@ -16,20 +16,28 @@ public class MyHttpServer extends NanoHTTPD {
 	private static final Logger LOG = Logger.getLogger(MyHttpServer.class.getName());
 	private static Map<String,MyHttpHandler> getMap=new HashMap<>();
 	private static Map<String,MyHttpHandler> postMap=new HashMap<>();
-	public MyHttpServer() {
-		super(8080);
+	public MyHttpServer(int port) {
+		super(port);
+		
 
 // TODO Auto-generated constructor stub
 	}
 	
 	public static void main(String[] args){
-		ServerRunner.run(MyHttpServer.class);
+		System.out.println(MyHttpServer.class);
+		//ServerRunner.run(MyHttpServer.class);
 	}
 	/** used when starting the server from outside
 	 * 
 	 */
 	public static void startMyServer(){
+
 		ServerRunner.run(MyHttpServer.class);
+	}
+	
+	public void startServer() throws IOException{
+		
+		this.start();
 	}
 	
 	/** addHandler add a handler to the appropriate callback HashMap for a specific URI

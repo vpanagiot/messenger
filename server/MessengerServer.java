@@ -1,7 +1,17 @@
 package messenger.server;
 
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileReader;
+import java.io.InputStream;
+import java.security.KeyStore;
 import java.text.SimpleDateFormat;
 import java.util.*;
+
+import javax.net.ssl.SSLServerSocketFactory;
+import javax.net.ssl.SSLSocketFactory;
+
 import org.json.JSONObject;
 import org.nanohttpd.util.ServerRunner;
 
@@ -14,6 +24,8 @@ public class MessengerServer {
 	private static SimpleDateFormat ft =  new SimpleDateFormat ("yyyy.MM.dd,HH:mm:ss");
 	private static int timeout=5000;
 	private static Timer timeoutTimer;
+	private MyHttpServer regHttpServer;
+	private MyHttpServer sslHttpServer;
 	
 	
 	public MessengerServer() {
@@ -103,8 +115,45 @@ public class MessengerServer {
 		MyHttpServer.addHandler("/messenger/api/blockcontact", "POST", (String uri,Map<String,List<String>> getMap,Map<String,Object> postMap)->blockContact(postMap));
 		MessengerServer curServer=new MessengerServer();
 		curServer.dbObject=new MessengerDBInterface();
+		MyHttpServer regHttpServer=new MyHttpServer(8080);
+		String settingFileName="settings.conf";
+		
+		String curLine;
+		String keyStoreFile=null;
+		String password=null;
+		try{
+			BufferedReader fileReader=new BufferedReader(new FileReader(settingFileName));
+			while((curLine=fileReader.readLine())!=null){
+				if(curLine.startsWith("keystore")){
+					keyStoreFile=curLine.substring(curLine.indexOf('=')+1);
+					
+				}
+				else if(curLine.startsWith("password")){
+					password=curLine.substring(curLine.indexOf('=')+1);
+			}
+				
+			}
+			fileReader.close();
+		}
+		catch(Exception e){
+			e.printStackTrace();
+		}
 		
 		
+		if(keyStoreFile!=null){
+			try{
+				BufferedReader n=new BufferedReader(new FileReader(keyStoreFile));
+				int onebyte=n.read();
+				n.close();
+			curServer.sslHttpServer=new MyHttpServer(8081);
+			SSLServerSocketFactory sslSF=MyHttpServer.makeSSLSocketFactory(keyStoreFile, password.toCharArray());
+			curServer.sslHttpServer.makeSecure(sslSF,null);
+			curServer.sslHttpServer.start();
+			}
+			catch(Exception e){
+				e.printStackTrace();
+			}
+		}
 		int delay = 5000; //milliseconds
 		TimeoutChecker timeoutChecker=curServer.new TimeoutChecker();
 		  timeoutTimer=new Timer();
@@ -112,8 +161,13 @@ public class MessengerServer {
 		
 		
 		
-		MyHttpServer.startMyServer();
-		
+		//MyHttpServer.startMyServer();
+		try{
+		regHttpServer.startServer();
+		}
+		catch(Exception e){
+			e.printStackTrace();
+		}
 		
 	}
 	

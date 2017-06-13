@@ -36,6 +36,13 @@ POST data:	username
 		contact
 reply data:
 
+removecontact:
+remove an existing friend
+POST data:	username
+		sessiondata
+		contact
+reply data:
+
 friendlist:
 get the contact list of the user. It includes incoming and outgoing friend requests
 and blocked contacts

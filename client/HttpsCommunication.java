@@ -14,12 +14,12 @@ import org.json.JSONObject;
  * @author vpanagiot
  *
  */
-public class HttpCommunication implements IHttpCommunication {
+public class HttpsCommunication implements IHttpCommunication {
 	private String serverUrl;
 	private String fullUrl; //defined for scope reasons used where needed
 	
     
-	public HttpCommunication(String str) {
+	public HttpsCommunication(String str) {
 		serverUrl=str;
 	}
 	
@@ -82,13 +82,16 @@ public class HttpCommunication implements IHttpCommunication {
 			  
 			  URL conUrl=new URL(UrlEncode(url2,null));
 			  
-			  
-		      HttpURLConnection con = (HttpURLConnection) conUrl.openConnection();
+			  HttpsURLConnection.setDefaultHostnameVerifier((hostname,session)->hostname.equals("127.0.0.1"));
+		      HttpsURLConnection con = (HttpsURLConnection) conUrl.openConnection();
+		      
 			  
 		      con.setRequestMethod("POST");
 		      con.setDoOutput(true);
 		      con.setRequestProperty("Content-Type", 
-		              "application/json;charset=utf-8");
+		             "application/json ; charset=UTF-8");
+		             
+		              con.setRequestProperty("Mime-Type", "text/plain ; charset= UTF-8");
 		      con.setRequestProperty("Content-Length", "" + 
 		                  Integer.toString(postData.length()));
 		      con.setRequestProperty("Content-Language", "en-US"); 	
@@ -96,7 +99,8 @@ public class HttpCommunication implements IHttpCommunication {
 		      con.setDoInput(true);
 		      
 		      // give it 15 seconds to respond
-		      con.setReadTimeout(3*1000);
+		      con.setReadTimeout(10*1000);
+		      con.setConnectTimeout(10*1000);
 		      
 		      OutputStreamWriter postStream=new OutputStreamWriter(con.getOutputStream());
 		      postStream.write(postData);
@@ -104,15 +108,30 @@ public class HttpCommunication implements IHttpCommunication {
 		      postStream.close();
 		      int responseCode = con.getResponseCode();
 		      // read the output from the server
-		      reader = new BufferedReader(new InputStreamReader(con.getInputStream()));
+		      Object cont=con.getContent();
+		      if(cont instanceof InputStream){
+		    	 int some;
+		    	
+		    	while((some=((InputStream) cont).read())!=-1){
+		    		System.out.println((char) some);
+		    	  //reader=new BufferedReader(new InputStreamReader((InputStream)cont));
+		    	  data+=(char)some;
+		    	  
+		    	}
+		      }
+		      /*
+		      String a="new";
+		      reader = new BufferedReader(new InputStreamReader((InputStream)cont));
 		      while(reader.ready()){
 		    	  data+=reader.readLine();
+		    	  System.out.println(data);
 		      }
 		      reader.close();
-		      
+		      System.out.println(data);*/
 		      return(data);
 		}
 		catch(Exception e){
+			e.printStackTrace();
 			return(null);
 		}
 	}

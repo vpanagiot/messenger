@@ -20,10 +20,12 @@ public class AsyncHttp extends SwingWorker<Map, Object> {
 	private String apiCall;
 	private String method;
 	private Map<String,String> parameterMap;
+	private boolean secure;
 	//private AsyncHttp curAsyncHttp;
 
 	private AsyncHttp(String method,String url,String apiCall,Map<String,String> parameterMap, BiConsumer<Integer,Map> callBack){
-		this.url=url;
+		this.url="https://127.0.0.1:8081";
+		secure=true;
 		this.apiCall=apiCall;
 		this.method=method;
 		this.parameterMap=parameterMap;
@@ -61,7 +63,13 @@ public class AsyncHttp extends SwingWorker<Map, Object> {
 	
 	@Override
 	public Map doInBackground(){
-		HttpCommunication newHTTP=new HttpCommunication(url);
+		IHttpCommunication newHTTP;
+		if(secure){
+			newHTTP=new HttpsCommunication(url);	
+		}
+		else{
+		newHTTP=new HttpCommunication(url);
+		}
 		Map retData=new HashMap();
 		if (method.equals("GET")){
 		    String recData=newHTTP.doGetHttp(apiCall, parameterMap);
